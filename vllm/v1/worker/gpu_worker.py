@@ -49,15 +49,18 @@ class Worker:
         self.local_rank = local_rank
         self.rank = rank
         self.distributed_init_method = distributed_init_method
-
+        print(f"Initializing worker rank={rank}, local_rank={local_rank}")
         if self.model_config.trust_remote_code:
             # note: lazy import to avoid importing torch before initializing
             from vllm.utils import init_cached_hf_modules
             init_cached_hf_modules()
 
         self.model_runner = GPUModelRunner(vllm_config)
+        print("worker initialized!")
+
 
     def initialize(self):
+        print(f"self.device_config.device.type: {self.device_config.device.type}")
         if self.device_config.device.type == "cuda":
             # torch.distributed.all_reduce does not free the input tensor until
             # the synchronization point. This causes the memory usage to grow
@@ -70,6 +73,9 @@ class Worker:
             # This env var set by Ray causes exceptions with graph building.
             os.environ.pop("NCCL_ASYNC_ERROR_HANDLING", None)
             self.device = torch.device(f"cuda:{self.local_rank}")
+            print(f"device: cuda:{self.local_rank}")
+            print(self.device)
+            print(f"available: {os.environ['CUDA_VISIBLE_DEVICES']}")
             torch.cuda.set_device(self.device)
 
             _check_if_gpu_supports_dtype(self.model_config.dtype)
@@ -180,12 +186,11 @@ def init_worker_distributed_environment(
 ) -> None:
     """Initialize the distributed environment."""
     set_custom_all_reduce(not parallel_config.disable_custom_all_reduce)
-
     init_distributed_environment(parallel_config.world_size, rank,
                                  distributed_init_method, local_rank)
-
     ensure_model_parallel_initialized(parallel_config.tensor_parallel_size,
-                                      parallel_config.pipeline_parallel_size)
+                                      parallel_config.pipeline_parallel_size,
+                                      dist_factor=parallel_config.dist_factor)
 
 
 def _check_if_gpu_supports_dtype(torch_dtype: torch.dtype):

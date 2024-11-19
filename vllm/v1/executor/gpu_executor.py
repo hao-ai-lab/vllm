@@ -6,6 +6,7 @@ from vllm.logger import init_logger
 from vllm.utils import get_distributed_init_method, get_ip, get_open_port
 from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.worker.gpu_worker import Worker
+import vllm.envs as envs
 
 logger = init_logger(__name__)
 
@@ -24,15 +25,18 @@ class GPUExecutor:
         self.speculative_config = vllm_config.speculative_config
         self.prompt_adapter_config = vllm_config.prompt_adapter_config
         self.observability_config = vllm_config.observability_config
-
-        self.worker = self._create_worker()
+        self.worker = self._create_worker(
+            local_rank=self.parallel_config.local_rank, 
+            rank=self.parallel_config.manual_rank, 
+            distributed_init_method=self.parallel_config.distributed_init_method,
+        )
         self.worker.initialize()
         self.worker.load_model()
 
     def _create_worker(
             self,
-            local_rank: int = 0,
-            rank: int = 0,
+            local_rank: int,
+            rank: int,
             distributed_init_method: Optional[str] = None) -> Worker:
         """Return worker init args for a given rank."""
         # see https://github.com/NVIDIA/nccl/issues/1234
@@ -40,7 +44,8 @@ class GPUExecutor:
 
         if distributed_init_method is None:
             distributed_init_method = get_distributed_init_method(
-                get_ip(), get_open_port())
+                get_ip(), envs.VLLM_PORT or get_open_port())
+            print(f"distributed_init_method not provided, creating one: {distributed_init_method}")
         return Worker(
             vllm_config=self.vllm_config,
             local_rank=local_rank,

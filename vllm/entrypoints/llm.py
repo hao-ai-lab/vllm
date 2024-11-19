@@ -9,8 +9,10 @@ from tqdm import tqdm
 from vllm import envs
 from vllm.beam_search import (BeamSearchInstance, BeamSearchOutput,
                               BeamSearchSequence, get_beam_search_score)
+from vllm.config import set_role
 from vllm.engine.arg_utils import (EngineArgs, HfOverrides, PoolerConfig,
                                    TaskOption)
+
 from vllm.engine.llm_engine import LLMEngine
 from vllm.entrypoints.chat_utils import (ChatCompletionMessageParam,
                                          ChatTemplateContentFormatOption,
@@ -34,7 +36,9 @@ from vllm.transformers_utils.tokenizer import (AnyTokenizer, MistralTokenizer,
 from vllm.transformers_utils.tokenizer_group import TokenizerGroup
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import Counter, deprecate_args, deprecate_kwargs, is_list_of
-
+import torch
+import torch.distributed as dist
+import os
 logger = init_logger(__name__)
 
 
@@ -166,6 +170,7 @@ class LLM:
         # After positional args are removed, move this right below `model`
         task: TaskOption = "auto",
         override_pooler_config: Optional[PoolerConfig] = None,
+        role: str = "both",
         **kwargs,
     ) -> None:
         '''
@@ -174,7 +179,6 @@ class LLM:
         Note: if enforce_eager is unset (enforce_eager is None)
         it defaults to False.
         '''
-
         if "disable_log_stats" not in kwargs:
             kwargs["disable_log_stats"] = True
 
@@ -202,17 +206,20 @@ class LLM:
             hf_overrides=hf_overrides,
             mm_processor_kwargs=mm_processor_kwargs,
             override_pooler_config=override_pooler_config,
+            role=role,
             **kwargs,
         )
         # Logic to switch between engines is done at runtime instead of import
         # to avoid import order issues
         self.engine_class = self.get_engine_class()
-
+        #[hack]
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
         # TODO(rob): enable mp by default (issue with fork vs spawn)
         self.llm_engine = self.engine_class.from_engine_args(
             engine_args, usage_context=UsageContext.LLM_CLASS)
-
         self.request_counter = Counter()
+        # Set the role for current engine
+        set_role(role)
 
     @staticmethod
     def get_engine_class() -> Type[LLMEngine]:

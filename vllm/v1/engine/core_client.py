@@ -172,7 +172,6 @@ class SyncMPClient(MPClient):
         super().__init__(*args, asyncio_mode=False, **kwargs)
 
     def get_output(self) -> List[EngineCoreOutput]:
-
         (frame, ) = self.output_socket.recv_multipart(copy=False)
         engine_core_outputs = self.decoder.decode(frame.buffer).outputs
         return engine_core_outputs

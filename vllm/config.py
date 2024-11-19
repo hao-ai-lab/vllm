@@ -49,6 +49,27 @@ _Task = Literal["generate", "embedding", "draft"]
 HfOverrides = Union[Dict[str, Any], Callable[[PretrainedConfig],
                                              PretrainedConfig]]
 
+#[hack]
+RoleOption = Literal["both", "prefill", "decode"]
+_ROLE: RoleOption = "both"
+
+def set_role(role: RoleOption) -> None:
+    """
+    Set the value for global _role.
+    
+    :param role: Must be 'both', 'prefill', or 'decode'
+    """
+    global _ROLE
+    _ROLE = role
+
+def get_role() -> RoleOption:
+    """
+    Read the global _role.
+    
+    :return: the current _ROLE
+    """
+    return _ROLE
+
 
 class ModelConfig:
     """Configuration for the model.
@@ -951,6 +972,8 @@ class ParallelConfig:
         self,
         pipeline_parallel_size: int,
         tensor_parallel_size: int,
+        rank: int,
+        local_rank: int,
         worker_use_ray: Optional[bool] = None,
         max_parallel_loading_workers: Optional[int] = None,
         disable_custom_all_reduce: bool = False,
@@ -959,6 +982,8 @@ class ParallelConfig:
         placement_group: Optional["PlacementGroup"] = None,
         distributed_executor_backend: Optional[Union[
             str, Type["ExecutorBase"]]] = None,
+        distributed_init_method: Optional[str] = None,
+        dist_factor: int = 1,
     ) -> None:
         self.pipeline_parallel_size = pipeline_parallel_size
         self.tensor_parallel_size = tensor_parallel_size
@@ -968,8 +993,13 @@ class ParallelConfig:
         self.tokenizer_pool_config = tokenizer_pool_config
         self.ray_workers_use_nsight = ray_workers_use_nsight
         self.placement_group = placement_group
-        self.world_size = pipeline_parallel_size * self.tensor_parallel_size
-
+        self.dist_factor = dist_factor
+        self.world_size = pipeline_parallel_size * self.tensor_parallel_size * dist_factor
+        print(f"world_size ({self.world_size}) = pipeline_parallel_size {pipeline_parallel_size} x tensor_parallel_size {tensor_parallel_size} x dist_factor {dist_factor}")
+        self.manual_rank = rank
+        self.local_rank = local_rank
+        self.distributed_init_method = distributed_init_method
+        print(f"rank={rank}, local_rank={local_rank}, distributed_init_method={distributed_init_method}")
         if worker_use_ray:
             if self.distributed_executor_backend is None:
                 self.distributed_executor_backend = "ray"

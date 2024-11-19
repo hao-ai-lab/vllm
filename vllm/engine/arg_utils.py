@@ -101,6 +101,10 @@ class EngineArgs:
     seed: int = 0
     max_model_len: Optional[int] = None
     worker_use_ray: bool = False
+    role: str = 'both', # ['both', 'prefill', 'decode']
+    rank: int = 0,
+    local_rank: int = 0,
+    dist_factor: int = 1,
     # Note: Specifying a custom executor backend by passing a class
     # is intended for expert use only. The API may change without
     # notice.
@@ -367,6 +371,28 @@ class EngineArgs:
             '--worker-use-ray',
             action='store_true',
             help='Deprecated, use --distributed-executor-backend=ray.')
+        
+        parser.add_argument('--role',
+                type=str,
+                default=EngineArgs.role,
+                help='Role of the engine. Allowed values are: prefill, decode, both.')
+
+        parser.add_argument('--rank',
+                type=int,
+                default=EngineArgs.rank,
+                help='Rank of the engine.')
+
+        parser.add_argument('--local-rank',
+                type=int,
+                default=EngineArgs.local_rank,
+                help='Local rank of the engine.')
+        
+        parser.add_argument('--dist-factor',
+                type=int,
+                default=EngineArgs.dist_factor,
+                help='Dist factor of the engine.'
+        )
+
         parser.add_argument('--pipeline-parallel-size',
                             '-pp',
                             type=int,
@@ -980,7 +1006,10 @@ class EngineArgs:
                 self.tokenizer_pool_extra_config,
             ),
             ray_workers_use_nsight=self.ray_workers_use_nsight,
-            distributed_executor_backend=self.distributed_executor_backend)
+            distributed_executor_backend=self.distributed_executor_backend,
+            rank=self.rank,
+            local_rank=self.local_rank,
+            dist_factor=self.dist_factor,)
 
         max_model_len = model_config.max_model_len
         use_long_context = max_model_len > 32768

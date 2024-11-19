@@ -4,11 +4,11 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import torch
-import torch.distributed
+import torch.distributed as dist
 import torch.nn as nn
 
 from vllm.compilation.compile_context import set_compile_context
-from vllm.config import CompilationConfig, CompilationLevel, VllmConfig
+from vllm.config import CompilationConfig, CompilationLevel, VllmConfig, get_role, RoleOption
 from vllm.forward_context import set_forward_context
 from vllm.inputs import INPUT_REGISTRY, InputRegistry
 from vllm.logger import init_logger
@@ -53,7 +53,11 @@ class GPUModelRunner:
         cache_config = self.cache_config
         scheduler_config = self.scheduler_config
         parallel_config = self.parallel_config
-        self.device = self.device_config.device
+        #[hack]
+        if str(self.device_config.device) == 'cuda':
+            self.device = torch.device(f"{self.device_config.device}:{self.parallel_config.manual_rank}")
+        else:
+            self.device = self.device_config.device
         self.pin_memory = is_pin_memory_available()
         self.dtype = self.model_config.dtype
         if cache_config.cache_dtype == "auto":
@@ -74,7 +78,6 @@ class GPUModelRunner:
         self.num_kv_heads = model_config.get_num_kv_heads(parallel_config)
         self.head_size = model_config.get_head_size()
         self.hidden_size = model_config.get_hidden_size()
-
         # Multi-modal data support
         self.input_registry = input_registry
 
@@ -445,16 +448,42 @@ class GPUModelRunner:
         # TODO(woosuk): Avoid the copy. Optimize.
         self.inputs_embeds[:num_scheduled_tokens].copy_(inputs_embeds)
 
+        def should_execute_model(role: RoleOption, prefill_step: bool) -> bool:
+            if role == "both":
+                return True
+            if role == "prefill":
+                return prefill_step
+            if role == "decode":
+                return not prefill_step
+            return False
+
         # Run the decoder.
         # Use persistent buffers for CUDA graphs.
         with set_forward_context(attn_metadata):
-            hidden_states = self.model(
-                input_ids=None,
-                positions=self.positions[:num_input_tokens],
-                kv_caches=self.kv_caches,
-                attn_metadata=None,
-                inputs_embeds=self.inputs_embeds[:num_input_tokens],
-            )
+            role = get_role()
+            # For the first step in decode, we want to receive hidden_state and kv_cache
+            #[hack] Probably not a good way to check if it's prefill_step
+            prefill_step = torch.sum(self.kv_caches[0]) == 0
+            if role == "decode" and prefill_step:
+                hidden_states = torch.empty_like(self.inputs_embeds[:num_input_tokens])
+                dist.recv(hidden_states, src=0)
+                for i in range(len(self.kv_caches)):
+                    dist.recv(self.kv_caches[i], src=0)
+
+            if should_execute_model(role, prefill_step):
+                hidden_states = self.model(
+                    input_ids=None,
+                    positions=self.positions[:num_input_tokens],
+                    kv_caches=self.kv_caches,
+                    attn_metadata=None,
+                    inputs_embeds=self.inputs_embeds[:num_input_tokens],
+                )
+
+            if role == "prefill" and prefill_step:
+                dist.send(hidden_states, dst=1)
+                for i in range(len(self.kv_caches)):
+                    dist.send(self.kv_caches[i], dst=1)
+
         hidden_states = hidden_states[:num_scheduled_tokens]
         hidden_states = hidden_states[logits_indices]
         logits = self.model.compute_logits(hidden_states, None)
