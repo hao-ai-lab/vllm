@@ -1248,6 +1248,7 @@ class ParallelConfig:
     world_size: int = field(init=False)
 
     rank: int = 0
+    local_rank: Optional[int] = None # hack: set by us
 
     def compute_hash(self):
         """

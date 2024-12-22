@@ -26,7 +26,10 @@ class UniprocExecutor(Executor):
         self.prompt_adapter_config = vllm_config.prompt_adapter_config
         self.observability_config = vllm_config.observability_config
 
-        self.worker: Worker = self._create_worker()
+        self.worker: Worker = self._create_worker(
+            local_rank=self.parallel_config.local_rank,
+            rank=self.parallel_config.rank,
+        )
         self.worker.initialize()
         self.worker.load_model()
 

@@ -86,6 +86,7 @@ class LLMEngine:
         usage_context: UsageContext = UsageContext.ENGINE_CONTEXT,
         stat_loggers: Optional[Dict[str, StatLoggerBase]] = None,
         enable_multiprocessing: bool = False,
+        post_proc_func: Optional['Callable'] = None,
     ) -> "LLMEngine":
         """Creates an LLM engine from the engine arguments."""
 
@@ -96,6 +97,9 @@ class LLMEngine:
         if VLLM_ENABLE_V1_MULTIPROCESSING:
             logger.debug("Enabling multiprocessing for LLMEngine.")
             enable_multiprocessing = True
+
+        if post_proc_func is not None:
+            vllm_config = post_proc_func(vllm_config)
 
         # Create the LLMEngine.
         return cls(vllm_config=vllm_config,
