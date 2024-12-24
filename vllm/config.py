@@ -1249,6 +1249,7 @@ class ParallelConfig:
 
     rank: int = 0
     local_rank: Optional[int] = None # hack: set by us
+    local_ranks: Optional[List[int]] = None # hack: set by us
 
     def compute_hash(self):
         """

@@ -11,12 +11,17 @@ from vllm.utils import get_open_zmq_ipc_path, kill_process_tree
 from vllm.v1.engine import (EngineCoreOutput, EngineCoreOutputs,
                             EngineCoreProfile, EngineCoreRequest,
                             EngineCoreRequestType, EngineCoreRequestUnion)
-from vllm.v1.engine.core import (EngineCore, EngineCoreProc,
-                                 EngineCoreProcHandle)
 from vllm.v1.serial_utils import PickleEncoder
 
 logger = init_logger(__name__)
-
+import sys
+sys.path.append('/workspace/workspace/distserve_new/distserve')
+from vllm.v1.engine.core import (EngineCore, EngineCoreProc,
+                                 EngineCoreProcHandle)
+from distserve.engine.vllm.engine_core import (EngineCorePatch,
+                                               EngineCoreProcPatch)
+EngineCore = EngineCorePatch
+EngineCoreProc = EngineCoreProcPatch
 
 class EngineCoreClient:
     """
@@ -92,7 +97,7 @@ class InprocClient(EngineCoreClient):
     """
 
     def __init__(self, *args, **kwargs):
-        self.engine_core = EngineCore(*args, **kwargs)
+        self.engine_core = EngineCorePatch(*args, **kwargs)
 
     def get_output(self) -> List[EngineCoreOutput]:
         return self.engine_core.step()
