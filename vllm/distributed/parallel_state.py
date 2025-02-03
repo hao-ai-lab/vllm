@@ -176,20 +176,23 @@ class GroupCoordinator:
         self.local_rank = local_rank
         self.device_group = None
         self.cpu_group = None
-
-        for ranks in group_ranks:
+        logger.info(f"group_ranks: {group_ranks}, self.rank = {self.rank}, local_rank={local_rank}")
+        for ranks in group_ranks: #[[0, 1]]
             device_group = torch.distributed.new_group(
                 ranks, backend=torch_distributed_backend)
             # a group with `gloo` backend, to allow direct coordination between
             # processes through the CPU.
+            logger.info(f"ranks: {ranks}")
             cpu_group = torch.distributed.new_group(ranks, backend="gloo")
+            logger.info(f"cpu_group initialized for ranks: {ranks}")
             if self.rank in ranks:
                 self.ranks = ranks
                 self.world_size = len(ranks)
                 self.rank_in_group = ranks.index(self.rank)
                 self.device_group = device_group
                 self.cpu_group = cpu_group
-
+        torch.distributed.barrier()
+        logger.info(f"Initialized group {self.unique_name} with ranks {self.ranks}")
         assert self.cpu_group is not None
         assert self.device_group is not None
 
@@ -198,7 +201,10 @@ class GroupCoordinator:
             self.device = torch.device(f"cuda:{local_rank}")
         else:
             self.device = torch.device("cpu")
-
+        # torch.distributed.barrier(group=self.cpu_group)
+        # import time
+        # if torch.distributed.get_rank() == 0:
+        #     time.sleep(5)
         self.use_pynccl = use_pynccl
         self.use_custom_allreduce = use_custom_allreduce
         self.use_tpu_communicator = use_tpu_communicator
@@ -212,6 +218,12 @@ class GroupCoordinator:
             PyNcclCommunicator)
 
         self.pynccl_comm: Optional[PyNcclCommunicator] = None
+        logger.info(f"self.world_size: {self.world_size}")
+        logger.info(f"use_pynccl: {use_pynccl}")
+        logger.info(f"use_custom_allreduce: {use_custom_allreduce}")
+        logger.info(f"use_tpu_communicator: {use_tpu_communicator}")
+        logger.info(f"use_hpu_communicator: {use_hpu_communicator}")
+        logger.info(f"use_xpu_communicator: {use_xpu_communicator}")
         if use_pynccl and self.world_size > 1:
             self.pynccl_comm = PyNcclCommunicator(
                 group=self.cpu_group,
@@ -247,10 +259,11 @@ class GroupCoordinator:
         from vllm.distributed.device_communicators.shm_broadcast import (
             MessageQueue)
         self.mq_broadcaster: Optional[MessageQueue] = None
+        logger.info(f"Using message queue broadcaster: {use_message_queue_broadcaster}")
         if use_message_queue_broadcaster and self.world_size > 1:
             self.mq_broadcaster = MessageQueue.create_from_process_group(
                 self.cpu_group, 1 << 22, 6)
-
+        logger.info(f"Initialized group {self.unique_name} with ranks {self.ranks}")
     @property
     def first_rank(self):
         """Return the global rank of the first process in the group"""
@@ -839,7 +852,8 @@ def get_world_group() -> GroupCoordinator:
 
 def init_world_group(ranks: List[int], local_rank: int,
                      backend: str) -> GroupCoordinator:
-    return GroupCoordinator(
+    logger.info(f"init_world_group start, with ranks: {ranks}, local_rank: {local_rank} and backend: {backend}")
+    group_coordinator = GroupCoordinator(
         group_ranks=[ranks],
         local_rank=local_rank,
         torch_distributed_backend=backend,
@@ -850,6 +864,8 @@ def init_world_group(ranks: List[int], local_rank: int,
         use_xpu_communicator=False,
         group_name="world",
     )
+    logger.info(f"init_world_group end")
+    return group_coordinator
 
 
 def init_model_parallel_group(

@@ -65,7 +65,6 @@ class PyNcclCommunicator:
         self.disabled = False
 
         logger.info("vLLM is using nccl==%s", self.nccl.ncclGetVersion())
-
         if self.rank == 0:
             # get the unique id from NCCL
             self.unique_id = self.nccl.ncclGetUniqueId()
@@ -77,12 +76,16 @@ class PyNcclCommunicator:
             tensor = torch.ByteTensor(list(self.unique_id.internal))
             ranks = dist.get_process_group_ranks(group)
             # arg `src` in `broadcast` is the global rank
+            logger.info(f"dist.broadcast start")
             dist.broadcast(tensor, src=ranks[0], group=group)
             byte_list = tensor.tolist()
             for i, byte in enumerate(byte_list):
                 self.unique_id.internal[i] = byte
         else:
+            logger.info(f"group.broadcast_obj start")
             self.unique_id = group.broadcast_obj(self.unique_id, src=0)
+            logger.info(f"group.broadcast_obj complete")
+        logger.info(f"self.unique_id = {self.unique_id.internal}") 
         if isinstance(device, int):
             device = torch.device(f"cuda:{device}")
         elif isinstance(device, str):
@@ -93,15 +96,19 @@ class PyNcclCommunicator:
         # nccl communicator and stream will use this device
         # `torch.cuda.device` is a context manager that changes the
         # current cuda device to the specified one
+        
         with torch.cuda.device(device):
+            logger.info(f"self.world_size, self.unique_id, self.rank = {self.world_size}, {self.unique_id}, {self.rank}")
             self.comm: ncclComm_t = self.nccl.ncclCommInitRank(
                 self.world_size, self.unique_id, self.rank)
 
             stream = current_stream()
             # A small all_reduce for warmup.
             data = torch.zeros(1, device=device)
+            logger.info(f"self.all_reduce start")
             self.all_reduce(data)
             stream.synchronize()
+            logger.info(f"self.all_reduce complete")
             del data
 
     def all_reduce(self,

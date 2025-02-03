@@ -38,6 +38,7 @@ class GPUModelRunner:
         vllm_config: VllmConfig,
         device: torch.device,
     ):
+        logger.info(f"GPUModelRunner.device={device}")
         self.vllm_config = vllm_config
         self.model_config = vllm_config.model_config
         self.cache_config = vllm_config.cache_config
@@ -708,6 +709,7 @@ class GPUModelRunner:
         return hidden_states
 
     def profile_run(self) -> None:
+        logger.info(f"profile_run.device={self.device}")
         # use an empty tensor instead of `None`` to force Dynamo to pass
         # it by reference, rather by specializing on the value `None`.
         # the `dtype` argument does not matter, and we use `float32` as
