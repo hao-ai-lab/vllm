@@ -1,0 +1,146 @@
+Okay, so I need to solve the equation x squared plus 4x equals zero. Let me think about how to approach this. Hmm, quadratic equations can sometimes be factored, right? Let me check if this one can be factored.
+
+
+
+The equation is x² + 4x = 0. Let me see. Both terms have an x in them. So maybe I can factor out an x. Let me try that. If I factor x out of x², that leaves me with x, and if I factor x out of 4x, that leaves me with 4. So, factoring x out, I get x times (x + 4) equals zero. Let me write that down: x(x + 4) = 0.
+
+
+
+Okay, so now the equation is in factored form. If the product of two factors is zero, then at least one of the factors must be zero. That's the zero product property, right? So, that means either x = 0 or x + 4 = 0. Let me write that down as two separate equations:
+
+
+
+\1. x = 0
+
+\2. x + 4 = 0
+
+
+
+Solving the first equation, x = 0 is already solved. For the second equation, x + 4 = 0, I can subtract 4 from both sides to solve for x. So, x = -4.
+
+
+
+Therefore, the solutions are x = 0 and x = -4. Let me check if these solutions make sense by plugging them back into the original equation.
+
+
+
+First, let's check x = 0. Plugging into x² + 4x: (0)² + 4*(0) = 0 + 0 = 0, which matches the equation. Good.
+
+
+
+Next, x = -4. Plugging into x² + 4x: (-4)² + 4*(-4) = 16 + (-16) = 0. That also works. Perfect.
+
+
+
+Wait, is there another way to solve this equation? Maybe using the quadratic formula? Let me try that method just to confirm.
+
+
+
+The quadratic formula is x = [-b ± √(b² - 4ac)] / (2a). For the equation x² + 4x = 0, the coefficients are a = 1, b = 4, and c = 0. Plugging into the formula:
+
+
+
+Discriminant first: b² - 4ac = 16 - 0 = 16. Square root of 16 is 4. So,
+
+
+
+x = [-4 ± 4]/2.
+
+
+
+Calculating both possibilities:
+
+
+
+\1. [-4 + 4]/2 = 0/2 = 0
+
+\2. [-4 - 4]/2 = (-8)/2 = -4
+
+
+
+Same solutions! So that's consistent. Good, so both methods give the same answers.
+
+
+
+Alternatively, could I complete the square here? Let me try that too. Starting with x² + 4x = 0. To complete the square, I need to add and subtract (4/2)² = 4. So:
+
+
+
+x² + 4x + 4 - 4 = 0
+
+Which is (x + 2)² - 4 = 0
+
+Then, (x + 2)² = 4
+
+Take square roots: x + 2 = ±2
+
+So, x = -2 ± 2
+
+
+
+Which gives x = -2 + 2 = 0 and x = -2 - 2 = -4. Again, same solutions. Nice.
+
+
+
+Hmm, so all three methods: factoring, quadratic formula, completing the square lead to the same answers. That gives me confidence that x = 0 and x = -4 are indeed the correct solutions.
+
+
+
+Wait, but let me make sure I didn't make any mistakes in my factoring step. The original equation is x² + 4x = 0. Factoring out x gives x(x + 4) = 0. Expanding that back, x*x + x*4 = x² + 4x, which matches the original equation. So, no mistake there.
+
+
+
+Another thing to check: sometimes when factoring, people might factor incorrectly, but in this case, since it's a simple binomial with a common factor, it seems straightforward. So, I think that was done correctly.
+
+
+
+Is there a possibility of another root? Quadratic equations can have at most two real roots, so since we found two, that should be all. Let me just verify by looking at the graph of y = x² + 4x. The graph is a parabola opening upwards (since the coefficient of x² is positive) with vertex at x = -b/(2a) = -4/(2*1) = -2. Plugging back x = -2, y = (-2)^2 + 4*(-2) = 4 - 8 = -4. So the vertex is at (-2, -4). The parabola crosses the x-axis at the roots, which we found to be x=0 and x=-4. That makes sense because the vertex is halfway between the roots. The distance between x=-4 and x=0 is 4 units, so halfway is at x=-2. Yep, that matches. So the graph confirms the roots.
+
+
+
+Therefore, after checking through multiple methods and verifying, I can be confident that the solutions are x = 0 and x = -4.
+
+
+
+**Final Answer**
+
+The solutions are \boxed{0} and \boxed{-4}.
+
+To solve the equation \(x^2 + 4x = 0\), we can factor out the common term \(x\):
+
+\[
+x(x + 4) = 0
+\]
+
+Using the zero product property, we set each factor equal to zero:
+
+1. \(x = 0\)
+2. \(x + 4 = 0\)
+
+Solving these equations, we find:
+
+1. \(x = 0\)
+2. \(x = -4\)
+
+To verify, we can substitute these solutions back into the original equation:
+
+- For \(x = 0\): \(0^2 + 4 \cdot 0 = 0\), which is true.
+- For \(x = -4\): \((-4)^2 + 4 \cdot (-4) = 16 - 16 = 0\), which is also true.
+
+Using the quadratic formula \(x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}\) with \(a = 1\), \(b = 4\), and \(c = 0\):
+
+\[
+x = \frac{-4 \pm \sqrt{16}}{2} = \frac{-4 \pm 4}{2}
+\]
+
+This gives solutions \(x = 0\) and \(x = -4\).
+
+Completing the square also confirms the solutions:
+
+\[
+x^2 + 4x + 4 - 4 = 0 \implies (x + 2)^2 - 4 = 0 \implies (x + 2)^2 = 4 \implies x + 2 = \pm 2
+\]
+
+Solving these, we get \(x = 0\) and \(x = -4\).
+
+Thus, the solutions are \(\boxed{0}\) and \(\boxed{-4}\).

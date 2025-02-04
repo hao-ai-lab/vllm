@@ -550,6 +550,36 @@ class Scheduler:
         )
 
 
+class PrefillScheduler(Scheduler):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.waiting_kv_transfer_queue = {}
+    
+    def add_request(self, request: Request) -> None:
+        request.sampling_params.max_tokens = 1 
+        request.sampling_params.min_tokens = 1 
+        super().add_request(request)
+
+    def _free_request(self, request: Request) -> None:
+        assert request.is_finished()
+        # self.kv_cache_manager.free(request)
+        # self.encoder_cache_manager.free(request)
+        self.running_reqs_data.pop(request.request_id, None)
+        del self.requests[request.request_id]
+        self.finished_req_ids.add(request.request_id)
+
+        self.waiting_kv_transfer_queue[request.request_id] = request
+
+    def _free_request_after_kv_transfer(self, request: Request) -> None:
+        self.kv_cache_manager.free(request)
+        self.encoder_cache_manager.free(request)
+        self.running_reqs_data.pop(request.request_id, None)
+        del self.waiting_kv_transfer_queue[request.request_id]
+
+
+
+
 @dataclass
 class NewRequestData:
 
