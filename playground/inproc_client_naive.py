@@ -21,14 +21,16 @@ from vllm.v1.engine.processor import Processor
 from vllm.transformers_utils.tokenizer_group import init_tokenizer_from_configs
 
 from vllm.v1.engine import EngineCoreOutputs, EngineCoreOutput
+from vllm.v1.executor.multiproc_executor import MultiprocExecutor
 from collections import defaultdict
 
 def get_tokenizer(vllm_config):
     tokenizer = init_tokenizer_from_configs(
-            model_config=vllm_config.model_config,
-            scheduler_config=vllm_config.scheduler_config,
-            parallel_config=vllm_config.parallel_config,
-            lora_config=vllm_config.lora_config)
+        model_config=vllm_config.model_config,
+        scheduler_config=vllm_config.scheduler_config,
+        parallel_config=vllm_config.parallel_config,
+        lora_config=vllm_config.lora_config
+    )
     
     tokenizer.ping()
     return tokenizer
@@ -36,8 +38,10 @@ def get_tokenizer(vllm_config):
 
 def main():
     args = AsyncEngineArgs(
-        model="facebook/opt-125m",
+        # model="facebook/opt-125m",
+        model="meta-llama/Llama-3.1-8B-Instruct",
         enforce_eager=True,
+        tensor_parallel_size=2,
     )
     vllm_config = args.create_engine_config()
     tokenizer = get_tokenizer(vllm_config)
@@ -45,37 +49,44 @@ def main():
         multiprocess_mode=False,
         asyncio_mode=False,
         vllm_config=vllm_config,
-        executor_class=UniProcExecutor,
+        # executor_class=UniProcExecutor,
+        executor_class=MultiprocExecutor,
     )
 
     prompt = "Fun fact about Paris: "
     prompt_token_ids = tokenizer.encode(prompt)
     
-    request = EngineCoreRequest(
-        request_id="1",
-        prompt=prompt,
-        prompt_token_ids=prompt_token_ids,
-        mm_inputs=None,
-        mm_hashes=None,
-        mm_placeholders=None,
-        sampling_params=SamplingParams(),
-        eos_token_id=None,
-        arrival_time=0.0,
-        lora_request=None,
-    )
-
-    client.add_request(request)
-
+    
+    requests = []
+    for i in reversed(range(4)):
+        request = EngineCoreRequest(
+            request_id=str(i),
+            prompt=prompt,
+            prompt_token_ids=prompt_token_ids,
+            mm_inputs=None,
+            mm_hashes=None,
+            mm_placeholders=None,
+            sampling_params=SamplingParams(),
+            eos_token_id=None,
+            arrival_time=0.0,
+            lora_request=None,
+        )
+        requests.append(request)
+        pass
 
     new_token_ids = defaultdict(list)
 
     while True:
+        if requests:
+            request = requests.pop()
+            client.add_request(request)
+        
         outputs: EngineCoreOutputs = client.get_output()
         if len(outputs.outputs) == 0:
             break
-        output: EngineCoreOutput = outputs.outputs[0]
-        rid = output.request_id
-        new_token_ids[rid].extend(output.new_token_ids)
+        for output in outputs.outputs:
+            rid = output.request_id
+            new_token_ids[rid].extend(output.new_token_ids)
 
     for rid, token_ids in new_token_ids.items():
         print(f"[Request {rid}] {request.prompt} || {repr(tokenizer.tokenizer.decode(token_ids))}")
