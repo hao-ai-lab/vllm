@@ -169,6 +169,8 @@ class GroupCoordinator:
         use_xpu_communicator: bool,
         use_message_queue_broadcaster: bool = False,
         group_name: Optional[str] = None,
+        # allow_non_member_group: bool = False
+        allow_non_member_group: bool = True,
     ):
         group_name = group_name or "anonymous"
         self.unique_name = _get_unique_name(group_name)
@@ -179,12 +181,17 @@ class GroupCoordinator:
         self.device_group = None
         self.cpu_group = None
 
+        self.world_size = 0
+        logger.debug(f"\033[31m{group_ranks = }\033[0m")
         for ranks in group_ranks:
             device_group = torch.distributed.new_group(
                 ranks, backend=torch_distributed_backend)
             # a group with `gloo` backend, to allow direct coordination between
             # processes through the CPU.
+            logger.debug(f"\033[32mBefore new_group: {ranks = }\033[0m")
             cpu_group = torch.distributed.new_group(ranks, backend="gloo")
+            logger.debug(f"\033[33mAfter new_group: {ranks = }\033[0m")
+
             if self.rank in ranks:
                 self.ranks = ranks
                 self.world_size = len(ranks)
@@ -192,8 +199,10 @@ class GroupCoordinator:
                 self.device_group = device_group
                 self.cpu_group = cpu_group
 
-        assert self.cpu_group is not None
-        assert self.device_group is not None
+        self.is_non_member_of_any_group = self.cpu_group is None or self.device_group is None
+        if not allow_non_member_group:
+            assert self.cpu_group is not None
+            assert self.device_group is not None
 
         from vllm.platforms import current_platform
         if current_platform.is_cuda_alike():
@@ -220,6 +229,7 @@ class GroupCoordinator:
                 device=self.device,
             )
 
+        logger.debug(f"\033[32mBefore ca_comm: {use_custom_allreduce = }, {self.world_size = }\033[0m")
         self.ca_comm: Optional[CustomAllreduce] = None
         if use_custom_allreduce and self.world_size > 1:
             # Initialize a custom fast all-reduce implementation.
@@ -227,24 +237,28 @@ class GroupCoordinator:
                 group=self.cpu_group,
                 device=self.device,
             )
+        logger.debug(f"\033[32mAfter ca_comm\033[0m")
 
         from vllm.distributed.device_communicators.tpu_communicator import (
             TpuCommunicator)
         self.tpu_communicator: Optional[TpuCommunicator] = None
         if use_tpu_communicator and self.world_size > 1:
             self.tpu_communicator = TpuCommunicator(group=self.cpu_group)
+        logger.debug(f"\033[32mAfter tpu_communicator\033[0m")
 
         from vllm.distributed.device_communicators.hpu_communicator import (
             HpuCommunicator)
         self.hpu_communicator: Optional[HpuCommunicator]
         if use_hpu_communicator and self.world_size > 1:
             self.hpu_communicator = HpuCommunicator(group=self.device_group)
+        logger.debug(f"\033[32mAfter hpu_communicator\033[0m")
 
         from vllm.distributed.device_communicators.xpu_communicator import (
             XpuCommunicator)
         self.xpu_communicator: Optional[XpuCommunicator]
         if use_xpu_communicator and self.world_size > 1:
             self.xpu_communicator = XpuCommunicator(group=self.device_group)
+        logger.debug(f"\033[32mAfter xpu_communicator\033[0m")
 
         from vllm.distributed.device_communicators.shm_broadcast import (
             MessageQueue)
@@ -252,6 +266,7 @@ class GroupCoordinator:
         if use_message_queue_broadcaster and self.world_size > 1:
             self.mq_broadcaster = MessageQueue.create_from_process_group(
                 self.cpu_group, 1 << 22, 6)
+        logger.debug(f"\033[32mAfter mq_broadcaster\033[0m")
 
     @property
     def first_rank(self):
@@ -949,11 +964,13 @@ def init_distributed_environment(
     distributed_init_method: str = "env://",
     local_rank: int = -1,
     backend: str = "nccl",
+    distserve_config: 'DistServeConfig' = None,
 ):
     logger.debug(
         "world_size=%d rank=%d local_rank=%d "
         "distributed_init_method=%s backend=%s", world_size, rank, local_rank,
         distributed_init_method, backend)
+    logger.debug(f"distserve_config: {distserve_config}")
     if not torch.distributed.is_initialized():
         assert distributed_init_method is not None, (
             "distributed_init_method must be provided when initializing "
@@ -986,7 +1003,7 @@ def init_distributed_environment(
 def initialize_model_parallel(
     tensor_model_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,
-    backend: Optional[str] = None,
+    backend: Optional[str] = None
 ) -> None:
     """
     Initialize model parallel groups.
@@ -1060,6 +1077,72 @@ def initialize_model_parallel(
                                     group_name="pp")
 
 
+def initialize_model_parallel_with_distserve_config(
+    distserve_config: 'DistServeConfig',
+    backend: Optional[str] = None,
+) -> None:
+    """
+    Initialize model parallel groups with distserve config.
+    """
+    assert distserve_config is not None, "distserve config is required"
+    assert torch.distributed.is_initialized()
+    world_size: int = torch.distributed.get_world_size()
+    backend = backend or torch.distributed.get_backend(
+        get_world_group().device_group)
+    
+    rank = get_world_group().rank
+    is_prefill = distserve_config.is_prefill_rank(rank)
+    is_decode = distserve_config.is_decode_rank(rank)
+    
+    prefill_world_placement = distserve_config.get_prefill_world_placement()
+    decode_world_placement = distserve_config.get_decode_world_placement()
+
+    global _TP
+    assert _TP is None, ("tensor model parallel group is already initialized")
+
+    global _PP
+    assert _PP is None, ("pipeline model parallel group is already initialized")
+
+    # Properly calculate and setup comm group for prefill and decode.
+    # Setup prefill tp group
+    # green
+    logger.debug(f"\033[32mBefore prefill_tp_group init_model_parallel_group: {prefill_world_placement = }, {decode_world_placement = }\033[0m")
+    prefill_tp_group = init_model_parallel_group(
+        prefill_world_placement, get_world_group().local_rank, 
+        backend, group_name=f"prefill_tp")
+    
+    # yellow
+    logger.debug(f"\033[33mBefore decode_tp_group init_model_parallel_group: {decode_world_placement = }\033[0m")
+    decode_tp_group = init_model_parallel_group(
+        decode_world_placement, get_world_group().local_rank, 
+        backend, group_name=f"decode_tp")
+
+    # blue
+    logger.debug(f"\033[34mBefore prefill_pp_group init_model_parallel_group: {prefill_world_placement = }\033[0m")
+    prefill_pp_group = init_model_parallel_group(
+        list(zip(*prefill_world_placement)), get_world_group().local_rank, 
+        backend, group_name=f"prefill_pp")
+    
+    # purple
+    logger.debug(f"\033[35mBefore decode_pp_group init_model_parallel_group: {decode_world_placement = }\033[0m")
+    decode_pp_group = init_model_parallel_group(
+        list(zip(*decode_world_placement)), get_world_group().local_rank, 
+        backend, group_name=f"decode_pp")
+
+    logger.debug(f"\033[32mAfter init_model_parallel_group: {prefill_tp_group = }, {decode_tp_group = }, {prefill_pp_group = }, {decode_pp_group = }\033[0m")
+    if is_prefill:
+        _TP = prefill_tp_group
+        _PP = prefill_pp_group
+    elif is_decode:
+        _TP = decode_tp_group
+        _PP = decode_pp_group
+    else:
+        raise ValueError(f"Invalid rank: {rank}")
+    
+    logger.debug(f"\033[32mAfter initialize_model_parallel_with_distserve_config: {_TP = }, {_PP = }\033[0m")
+    return
+
+
 def ensure_kv_transfer_initialized(vllm_config: "VllmConfig") -> None:
     """
     Initialize KV cache transfer parallel group.
@@ -1084,6 +1167,7 @@ def ensure_model_parallel_initialized(
     tensor_model_parallel_size: int,
     pipeline_model_parallel_size: int,
     backend: Optional[str] = None,
+    distserve_config: 'DistServeConfig' = None,
 ) -> None:
     """Helper to initialize model parallel groups if they are not initialized,
     or ensure tensor-parallel and pipeline-parallel sizes are equal to expected
@@ -1092,8 +1176,20 @@ def ensure_model_parallel_initialized(
     backend = backend or torch.distributed.get_backend(
         get_world_group().device_group)
     if not model_parallel_is_initialized():
-        initialize_model_parallel(tensor_model_parallel_size,
-                                  pipeline_model_parallel_size, backend)
+        assert distserve_config is not None, "DistServeConfig is required"
+        if distserve_config is None:
+            initialize_model_parallel(tensor_model_parallel_size,
+                                    pipeline_model_parallel_size, backend)
+        else:
+            # TODO:(GindaChen)(Hack): Hijack the model initialization logic
+            # to properly control the mode slicing,
+            # not so much yet on the distributed world setting.
+            logger.info(f"Initializing model parallel groups with distserve config: {distserve_config}")
+            initialize_model_parallel_with_distserve_config(
+                distserve_config,
+                backend
+            )
+            logger.info(f"Model parallel groups initialized with distserve config: {distserve_config}")
         return
 
     assert (

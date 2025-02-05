@@ -78,6 +78,7 @@ class MultiprocExecutor(Executor):
 
         # Create workers
         self.workers: List[WorkerProcHandle] = []
+        # TODO(GindaChen): This prevents distserve or multinode?
         for rank in range(self.world_size):
             worker = WorkerProc.make_worker_process(self.vllm_config, rank,
                                                     rank,
@@ -205,11 +206,32 @@ class WorkerProc:
         input_shm_handle: Handle,
         ready_path: str,
     ):
+        
+        logger.debug(f"{vllm_config.distserve_config = }")
+
         self.rank = rank
         wrapper = WorkerWrapperBase(vllm_config=vllm_config, rpc_rank=rank)
+        
         # TODO: move `init_worker` to executor level as a collective rpc call
+        world_size = vllm_config.parallel_config.world_size
+        parallel_config = vllm_config.parallel_config
+        distserve_config = vllm_config.distserve_config
+        if distserve_config is not None:
+            world_size = distserve_config.world_size
+
+            is_prefill_rank = distserve_config.is_prefill_rank(rank)
+            is_decode_rank = distserve_config.is_decode_rank(rank)
+
+            parallel_config.world_size = world_size
+            if is_prefill_rank:
+                parallel_config.tensor_parallel_size = distserve_config.prefill_tp
+                parallel_config.pipeline_parallel_size = distserve_config.prefill_pp
+            if is_decode_rank:
+                parallel_config.tensor_parallel_size = distserve_config.decode_tp
+                parallel_config.pipeline_parallel_size = distserve_config.decode_pp
+
         all_kwargs: List[Dict] = [
-            {} for _ in range(vllm_config.parallel_config.world_size)
+            {} for _ in range(world_size)
         ]
         all_kwargs[rank] = {
             "vllm_config": vllm_config,

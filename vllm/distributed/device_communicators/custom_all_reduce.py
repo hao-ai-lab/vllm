@@ -35,7 +35,8 @@ def _can_p2p(rank: int, world_size: int) -> bool:
         if envs.VLLM_SKIP_P2P_CHECK:
             logger.info(
                 "Skipping P2P check and trusting the driver's P2P report.")
-            return torch.cuda.can_device_access_peer(rank, i)
+            result = torch.cuda.can_device_access_peer(rank, i)
+            return result
         if not gpu_p2p_access_check(rank, i):
             return False
     return True
@@ -86,8 +87,11 @@ class CustomAllreduce:
                 " spans across nodes.")
             return
 
+        logger.debug(f"\033[33mCustomAllreduce.__init__() before get_rank\033[0m")
         rank = dist.get_rank(group=self.group)
         world_size = dist.get_world_size(group=self.group)
+
+        logger.debug(f"\033[33mCustomAllreduce.__init__() before world_size check {world_size = }\033[0m")
         if world_size == 1:
             # No need to initialize custom allreduce for single GPU case.
             return
@@ -122,8 +126,10 @@ class CustomAllreduce:
             torch.tensor([0], dtype=torch.int, device="cpu")
             for _ in range(world_size)
         ]
+        logger.debug(f"\033[33mCustomAllreduce.__init__() before all_gather: {world_size = }\033[0m")
         dist.all_gather(gather_list, tensor, group=self.group)
         physical_device_ids = [t.item() for t in gather_list]
+        logger.debug(f"\033[33mCustomAllreduce.__init__() after all_gather: {world_size = }, {physical_device_ids = }\033[0m")
 
         # test nvlink first, this will filter out most of the cases
         # where custom allreduce is not supported
@@ -131,7 +137,9 @@ class CustomAllreduce:
         assert current_platform.is_cuda()
         from vllm.platforms.cuda import CudaPlatform
         cuda_platform: CudaPlatform = current_platform
+        logger.debug(f"\033[33mCustomAllreduce.__init__() before is_full_nvlink\033[0m")
         full_nvlink = cuda_platform.is_full_nvlink(physical_device_ids)
+        logger.debug(f"\033[33mCustomAllreduce.__init__() after is_full_nvlink\033[0m")
         if world_size > 2 and not full_nvlink:
             logger.warning(
                 "Custom allreduce is disabled because it's not supported on"
@@ -141,22 +149,31 @@ class CustomAllreduce:
         # test P2P capability, this checks software/cudaruntime support
         # this is expensive to compute at the first time
         # then we cache the result
-        if not _can_p2p(rank, world_size):
-            logger.warning(
-                "Custom allreduce is disabled because your platform lacks "
-                "GPU P2P capability or P2P test failed. To silence this "
-                "warning, specify disable_custom_all_reduce=True explicitly.")
-            return
+        
+        # TODO:(GindaChen)(Bug) The assumption of group is not "world". Perhaps we should test this earlier.
+        # logger.debug(f"\033[33mCustomAllreduce.__init__() before _can_p2p\033[0m")
+        # if not _can_p2p(rank, world_size):
+        #     logger.warning(
+        #         "Custom allreduce is disabled because your platform lacks "
+        #         "GPU P2P capability or P2P test failed. To silence this "
+        #         "warning, specify disable_custom_all_reduce=True explicitly.")
+        #     return
+        # logger.debug(f"\033[33mCustomAllreduce.__init__() after _can_p2p\033[0m")
 
         self.disabled = False
         # Buffers memory are owned by this Python class and passed to C++.
         # Meta data composes of two parts: meta data for synchronization and a
         # temporary buffer for storing intermediate allreduce results.
+
+        logger.debug(f"\033[33mCustomAllreduce.__init__() before create_shared_buffer\033[0m")
         self.meta_ptrs = self.create_shared_buffer(ops.meta_size() + max_size,
                                                    group=group)
+        logger.debug(f"\033[33mCustomAllreduce.__init__() after create_shared_buffer\033[0m")
         # This is a pre-registered IPC buffer. In eager mode, input tensors
         # are first copied into this buffer before allreduce is performed
+        logger.debug(f"\033[33mCustomAllreduce.__init__() before create_shared_buffer\033[0m")
         self.buffer_ptrs = self.create_shared_buffer(max_size, group=group)
+        logger.debug(f"\033[33mCustomAllreduce.__init__() after create_shared_buffer\033[0m")
         # This is a buffer for storing the tuples of pointers pointing to
         # IPC buffers from all ranks. Each registered tuple has size of
         # 8*world_size bytes where world_size is at most 8. Allocating 8MB
@@ -169,9 +186,16 @@ class CustomAllreduce:
         self.rank = rank
         self.world_size = world_size
         self.full_nvlink = full_nvlink
+        logger.debug(f"\033[33mCustomAllreduce.__init__() before init_custom_ar\033[0m")
         self._ptr = ops.init_custom_ar(self.meta_ptrs, self.rank_data, rank,
                                        self.full_nvlink)
+        logger.debug(f"\033[33mCustomAllreduce.__init__() after init_custom_ar\033[0m")
+
+        logger.debug(f"\033[33mCustomAllreduce.__init__() before register_buffer\033[0m")
         ops.register_buffer(self._ptr, self.buffer_ptrs)
+        logger.debug(f"\033[33mCustomAllreduce.__init__() after register_buffer\033[0m")
+
+        logger.debug(f"\033[33mCustomAllreduce.__init__() end\033[0m")
 
     @staticmethod
     def create_shared_buffer(

@@ -78,13 +78,17 @@ class PyNcclCommunicator:
         if not isinstance(group, StatelessProcessGroup):
             tensor = torch.ByteTensor(list(self.unique_id.internal))
             ranks = dist.get_process_group_ranks(group)
+            
+            logger.debug(f"\033[31mBefore broadcast: {ranks = }\033[0m")
             # arg `src` in `broadcast` is the global rank
             dist.broadcast(tensor, src=ranks[0], group=group)
             byte_list = tensor.tolist()
             for i, byte in enumerate(byte_list):
                 self.unique_id.internal[i] = byte
+            logger.debug(f"\033[31mAfter broadcast: {ranks = }\033[0m")
         else:
             self.unique_id = group.broadcast_obj(self.unique_id, src=0)
+
         if isinstance(device, int):
             device = torch.device(f"cuda:{device}")
         elif isinstance(device, str):
@@ -95,6 +99,7 @@ class PyNcclCommunicator:
         # nccl communicator and stream will use this device
         # `torch.cuda.device` is a context manager that changes the
         # current cuda device to the specified one
+        logger.debug(f"\033[33mBefore ncclCommInitRank: {device = }\033[0m")
         with torch.cuda.device(device):
             self.comm: ncclComm_t = self.nccl.ncclCommInitRank(
                 self.world_size, self.unique_id, self.rank)
@@ -105,6 +110,7 @@ class PyNcclCommunicator:
             self.all_reduce(data)
             stream.synchronize()
             del data
+        logger.debug(f"\033[33mAfter ncclCommInitRank: {device = }\033[0m")
 
     def all_reduce(self,
                    in_tensor: torch.Tensor,

@@ -53,6 +53,34 @@ class Worker:
         self.prompt_adapter_config = vllm_config.prompt_adapter_config
         self.observability_config = vllm_config.observability_config
 
+        # TODO(GindaChen)(Hack): Use the DistServeConfig to hack the ParallelConfig.
+        self.distserve_config = vllm_config.distserve_config
+        
+        assert self.distserve_config is not None, "DistServeConfig is required"
+        if self.distserve_config is not None:
+            # Use the DistServeConfig to hack the ParallelConfig.
+            is_prefill = self.distserve_config.is_prefill_rank(rank)
+            is_decode = self.distserve_config.is_decode_rank(rank)
+            if is_prefill:
+                pp, tp = self.distserve_config.prefill_pp, self.distserve_config.prefill_tp
+            elif is_decode:
+                pp, tp = self.distserve_config.decode_pp, self.distserve_config.decode_tp
+            else:
+                raise ValueError(f"Invalid rank: {rank}")
+            
+            # This is to properly control the mode slicing, 
+            # not so much yet on the distributed world setting.
+            self.parallel_config.pipeline_parallel_size = pp
+            self.parallel_config.tensor_parallel_size = tp
+            
+            # TODO(GindaChen)(Hack): Cannot make the parallel_config.world_size 
+            # same as the distserve world size. This is the "global" world size.
+            # self.parallel_config.world_size = self.distserve_config.world_size
+            pass
+
+        logger.debug(f"In Worker: {self.distserve_config = }")
+        logger.debug(f"In Worker: {self.parallel_config = }")
+
         self.parallel_config.rank = rank
         self.local_rank = local_rank
         self.rank = rank
@@ -120,9 +148,11 @@ class Worker:
             raise RuntimeError(
                 f"Not support device type: {self.device_config.device}")
         # Initialize the distributed environment.
+        logger.debug(f"In Worker, before calling init_device: {self.parallel_config = }, {self.distserve_config = }")
         init_worker_distributed_environment(self.parallel_config, self.rank,
                                             self.distributed_init_method,
-                                            self.local_rank)
+                                            self.local_rank,
+                                            self.distserve_config)
         # Set random seed.
         set_random_seed(self.model_config.seed)
 
@@ -249,20 +279,41 @@ class Worker:
         return
 
 
+# def init_worker_distributed_environment(
+#     parallel_config: ParallelConfig,
+#     rank: int,
+#     distributed_init_method: Optional[str] = None,
+#     local_rank: int = -1,
+# ) -> None:
+#     """Initialize the distributed environment."""
+#     set_custom_all_reduce(not parallel_config.disable_custom_all_reduce)
+
+#     init_distributed_environment(parallel_config.world_size, rank,
+#                                  distributed_init_method, local_rank)
+
+#     ensure_model_parallel_initialized(parallel_config.tensor_parallel_size,
+#                                       parallel_config.pipeline_parallel_size)
+
+from vllm.config import DistServeConfig
+
 def init_worker_distributed_environment(
     parallel_config: ParallelConfig,
     rank: int,
     distributed_init_method: Optional[str] = None,
     local_rank: int = -1,
+    distserve_config: DistServeConfig = None,
 ) -> None:
     """Initialize the distributed environment."""
+    logger.debug(f"In init_worker_distributed_environment: {parallel_config = }, {rank = }, {distributed_init_method = }, {local_rank = }, {distserve_config = }")
     set_custom_all_reduce(not parallel_config.disable_custom_all_reduce)
 
     init_distributed_environment(parallel_config.world_size, rank,
                                  distributed_init_method, local_rank)
-
+    logger.debug(f"\033[32mBefore calling ensure_model_parallel_initialized\033[0m")
     ensure_model_parallel_initialized(parallel_config.tensor_parallel_size,
-                                      parallel_config.pipeline_parallel_size)
+                                      parallel_config.pipeline_parallel_size,
+                                      backend=None,
+                                      distserve_config=distserve_config)
 
 
 def _check_if_gpu_supports_dtype(torch_dtype: torch.dtype):

@@ -240,7 +240,11 @@ def gpu_p2p_access_check(src: int, tgt: int) -> bool:
         with open(path, "w") as f:
             json.dump(cache, f, indent=4)
     if is_distributed:
+        logger.debug(f"\033[33mgpu_p2p_access_check() before barrier\033[0m")
+        # TODO:(GindaChen)(Bug) should not use the global group to check p2p. 
+        # If really need to check, check this earlier.
         get_world_group().barrier()
+        logger.debug(f"\033[33mgpu_p2p_access_check() after barrier\033[0m")
     logger.info("reading GPU P2P access cache from %s", path)
     with open(path) as f:
         cache = json.load(f)

@@ -2597,6 +2597,57 @@ class ObservabilityConfig:
                 "'otlp_traces_endpoint'. Ensure OpenTelemetry packages are "
                 f"installed. Original error:\n{otel_import_error_traceback}")
 
+class DistServeConfig(BaseModel):
+    prefill_pp: int = 1
+    prefill_tp: int = 1
+    decode_pp: int = 1
+    decode_tp: int = 1
+
+    @property
+    def world_size(self) -> int:
+        return self.prefill_pp * self.prefill_tp + self.decode_pp * self.decode_tp
+    
+    def get_prefill_world_placement(self) -> List[List[int]]:
+        # TODO: (GindaChen)(Hack) This should be the interface to get the placement. 
+        # If placement exists, then just return it.
+        # User should also have the ability to set the placement.
+        placement: List[List[int]] = []
+        worker_id = 0
+        for pp in range(self.prefill_pp):
+            pp_group = []
+            for tp in range(self.prefill_tp):
+                pp_group.append(worker_id)
+                worker_id += 1
+            placement.append(pp_group)
+        return placement
+    
+    def get_decode_world_placement(self) -> List[List[int]]:
+        placement: List[List[int]] = []
+        worker_id = self.prefill_pp * self.prefill_tp
+        for pp in range(self.decode_pp):
+            pp_group = []
+            for tp in range(self.decode_tp):
+                pp_group.append(worker_id)
+                worker_id += 1
+            placement.append(pp_group)
+        return placement
+
+
+    
+    @property
+    def prefill_world_size(self) -> int:
+        return self.prefill_pp * self.prefill_tp
+
+    @property
+    def decode_world_size(self) -> int:
+        return self.decode_pp * self.decode_tp
+
+    def is_prefill_rank(self, rank: int) -> bool:
+        return rank < self.prefill_world_size
+    
+    def is_decode_rank(self, rank: int) -> bool:
+        return rank >= self.prefill_world_size and rank < self.world_size
+
 
 class KVTransferConfig(BaseModel):
     """Configuration for distributed KV cache transfer."""
@@ -3037,6 +3088,8 @@ class VllmConfig:
                                                   init=True)  # type: ignore
     kv_transfer_config: KVTransferConfig = field(default=None,
                                                  init=True)  # type: ignore
+    distserve_config: DistServeConfig = field(default=None,
+                                            init=True)  # type: ignore
     # some opaque config, only used to provide additional information
     # for the hash computation, mainly used for testing and debugging.
     additional_config: SupportsHash = field(default=None,
