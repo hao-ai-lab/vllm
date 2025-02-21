@@ -309,6 +309,9 @@ class OPTModel(nn.Module):
         self.make_empty_intermediate_tensors = (
             make_empty_intermediate_tensors_factory(["hidden_states"],
                                                     config.hidden_size))
+        self.start_layer, self.end_layer, self.layers = self.decoder.start_layer, self.decoder.end_layer, self.decoder.layers
+        self.config = config
+        self.config.num_key_value_heads = config.num_attention_heads
 
     def get_input_embeddings(self, input_ids: torch.Tensor) -> torch.Tensor:
         return self.decoder.get_input_embeddings(input_ids)
