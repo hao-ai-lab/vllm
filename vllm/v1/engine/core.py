@@ -19,7 +19,7 @@ from vllm.logger import init_logger
 from vllm.lora.request import LoRARequest
 from vllm.transformers_utils.config import (
     maybe_register_config_serialize_by_value)
-from vllm.utils import get_exception_traceback, zmq_socket_ctx
+from vllm.utils import get_exception_traceback, zmq_socket_ctx, resolve_obj_by_qualname
 from vllm.v1.core.kv_cache_utils import get_kv_cache_configs
 from vllm.v1.core.scheduler import Scheduler, SchedulerOutput
 from vllm.v1.engine import (EngineCoreOutputs, EngineCoreRequest,
@@ -61,6 +61,11 @@ class EngineCore:
         vllm_config.cache_config.num_gpu_blocks = num_gpu_blocks
         vllm_config.cache_config.num_cpu_blocks = num_cpu_blocks
 
+        if isinstance(vllm_config.scheduler_config.scheduler_cls, str):
+            Scheduler = resolve_obj_by_qualname(
+                vllm_config.scheduler_config.scheduler_cls)
+        else:
+            Scheduler = vllm_config.scheduler_config.scheduler_cls
         # Setup scheduler.
         self.scheduler = Scheduler(
             scheduler_config=vllm_config.scheduler_config,
@@ -151,6 +156,11 @@ class EngineCore:
                 outputs=[], scheduler_stats=self.scheduler.make_stats())
 
         scheduler_output = self.scheduler.schedule()
+        if scheduler_output.total_num_scheduled_tokens == 0:
+            return EngineCoreOutputs(
+                outputs=[],
+                scheduler_stats=self.scheduler.make_stats(),
+            )
         output = self.model_executor.execute_model(scheduler_output)
         engine_core_outputs = self.scheduler.update_from_output(
             scheduler_output, output)  # type: ignore
