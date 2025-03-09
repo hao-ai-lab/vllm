@@ -533,7 +533,7 @@ class Scheduler:
 
     def _free_request(self, request: Request) -> None:
         assert request.is_finished()
-        self.kv_cache_manager.free(request)
+        # self.kv_cache_manager.free(request)
         self.encoder_cache_manager.free(request)
         self._cached_reqs_data.pop(request.request_id, None)
         del self.requests[request.request_id]

@@ -195,6 +195,29 @@ class Worker:
     def get_kv_cache_spec(self) -> KVCacheSpec:
         return self.model_runner.get_kv_cache_spec()
 
+    def init_kv_cache_handles(self):
+        import pickle
+        import block_migration_ops
+        # Check if distributed group has been initialized
+        assert torch.distributed.is_initialized()
+        rank = torch.distributed.get_rank()
+
+        kv_caches = self.model_runner.kv_caches
+        logger.info(f"Setting up KV cache handles for rank {rank} with {len(kv_caches)} kv caches layers")
+        kv_cache_handles = []
+
+        pd_rank = self.kv_transfer_config.kv_rank
+
+        for i, kv_cache in enumerate(kv_caches):
+            handler = block_migration_ops.get_ipc_mem_handle(kv_cache)
+            kv_cache_handles.append(handler)
+            name = f"ipc.{pd_rank}.{rank}.{i}.pkl"
+            with open(name, "wb+") as f:
+                pickle.dump(handler, f)
+        
+        self.kv_cache_handles = kv_cache_handles
+        return 
+    
     def initialize_cache(self, kv_cache_config: KVCacheConfig) -> None:
         """Allocate GPU KV cache with the specified kv_cache_config."""
         if self.vllm_config.model_config.enable_sleep_mode:
@@ -205,6 +228,7 @@ class Worker:
             context = nullcontext()
         with context:
             self.model_runner.initialize_kv_cache(kv_cache_config)
+        self.init_kv_cache_handles()
 
     def compile_or_warm_up_model(self) -> None:
         # warm up sizes that are not in cudagraph capture sizes,

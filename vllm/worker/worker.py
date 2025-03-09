@@ -169,6 +169,30 @@ class Worker(LocalOrDistributedWorkerBase):
         # Set random seed.
         set_random_seed(self.model_config.seed)
 
+    def init_kv_cache_handles(self):
+        import pickle
+        import block_migration_ops
+        # Check if distributed group has been initialized
+        assert torch.distributed.is_initialized()
+        rank = torch.distributed.get_rank()
+
+        kv_caches = self.model_runner.kv_caches
+        logger.info(f"Setting up KV cache handles for rank {rank} with {len(kv_caches)} kv caches layers")
+        kv_cache_handles = []
+
+        pd_rank = self.kv_transfer_config.kv_rank
+
+        for i, kv_cache in enumerate(kv_caches):
+            handler = block_migration_ops.get_ipc_mem_handle(kv_cache)
+            kv_cache_handles.append(handler)
+            name = f"ipc.{pd_rank}.{rank}.{i}.pkl"
+            with open(name, "wb+") as f:
+                pickle.dump(handler, f)
+        
+        self.kv_cache_handles = kv_cache_handles
+        return 
+
+
     def load_model(self):
         if self.vllm_config.model_config.enable_sleep_mode:
             allocator = CuMemAllocator.get_instance()
@@ -305,6 +329,7 @@ class Worker(LocalOrDistributedWorkerBase):
         with context:
             self._init_cache_engine()
         self._warm_up_model()
+        self.init_kv_cache_handles()
 
     def _init_cache_engine(self):
         assert self.cache_config.num_gpu_blocks is not None
