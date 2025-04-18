@@ -550,9 +550,7 @@ class Sequence:
 
     def append_token_id(self, token_id: int, logprobs: Dict[int,
                                                             Logprob]) -> None:
-        assert token_id in logprobs
-        self.output_logprobs.append(logprobs)
-        self.data.append_token_id(token_id, logprobs[token_id].logprob)
+        self.data.append_token_id(token_id, 0.0)
 
     def get_len(self) -> int:
         return self.data.get_len()

@@ -133,31 +133,33 @@ class Detokenizer:
              spaces_between_special_tokens=prms.spaces_between_special_tokens,
          )
 
-        # Decode logprobs
-        logprobs = seq.output_logprobs[-1]
-        if logprobs:
-            previous_tokens = all_input_ids[:-1]
-            for token_id, sample_logprob in logprobs.items():
-                # If the token was generated this iteration,
-                # use the provided text.
-                if token_id == token_id_generated_this_iteration:
-                    sample_logprob.decoded_token = new_decoded_token_text
-                    continue
+        # Downstream of logprobs from the sampler, we can't execute this code.
 
-                if (sample_logprob.decoded_token is None
-                        and token_id != VLLM_INVALID_TOKEN_ID):
-                    all_input_ids_with_logprob = previous_tokens + [token_id]
-                    (_, new_text, _, _) = detokenize_incrementally(
-                        tokenizer=tokenizer,
-                        all_input_ids=all_input_ids_with_logprob,
-                        prev_tokens=seq.tokens,
-                        prefix_offset=seq.prefix_offset,
-                        read_offset=seq.read_offset,
-                        skip_special_tokens=prms.skip_special_tokens,
-                        spaces_between_special_tokens=prms.
-                        spaces_between_special_tokens,
-                    )
-                    sample_logprob.decoded_token = new_text
+        # # Decode logprobs
+        # logprobs = seq.output_logprobs[-1]
+        # if logprobs:
+        #     previous_tokens = all_input_ids[:-1]
+        #     for token_id, sample_logprob in logprobs.items():
+        #         # If the token was generated this iteration,
+        #         # use the provided text.
+        #         if token_id == token_id_generated_this_iteration:
+        #             sample_logprob.decoded_token = new_decoded_token_text
+        #             continue
+
+        #         if (sample_logprob.decoded_token is None
+        #                 and token_id != VLLM_INVALID_TOKEN_ID):
+        #             all_input_ids_with_logprob = previous_tokens + [token_id]
+        #             (_, new_text, _, _) = detokenize_incrementally(
+        #                 tokenizer=tokenizer,
+        #                 all_input_ids=all_input_ids_with_logprob,
+        #                 prev_tokens=seq.tokens,
+        #                 prefix_offset=seq.prefix_offset,
+        #                 read_offset=seq.read_offset,
+        #                 skip_special_tokens=prms.skip_special_tokens,
+        #                 spaces_between_special_tokens=prms.
+        #                 spaces_between_special_tokens,
+        #             )
+        #             sample_logprob.decoded_token = new_text
 
         seq.tokens.extend(new_tokens)
         seq.prefix_offset = prefix_offset
