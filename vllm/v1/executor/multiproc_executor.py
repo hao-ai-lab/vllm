@@ -79,10 +79,13 @@ class MultiprocExecutor(Executor):
         # Create workers
         self.workers: List[WorkerProcHandle] = []
         for rank in range(self.world_size):
-            worker = WorkerProc.make_worker_process(self.vllm_config, rank,
-                                                    rank,
-                                                    distributed_init_method,
-                                                    scheduler_output_handle)
+            worker = WorkerProc.make_worker_process(
+                self.vllm_config,
+                rank,
+                rank,
+                distributed_init_method,
+                scheduler_output_handle
+            )
             self.workers.append(worker)
 
         # Ensure message queues are ready. Will deadlock if re-ordered
@@ -205,42 +208,54 @@ class WorkerProc:
         input_shm_handle: Handle,
         ready_path: str,
     ):
-        self.rank = rank
-        wrapper = WorkerWrapperBase(vllm_config=vllm_config, rpc_rank=rank)
-        # TODO: move `init_worker` to executor level as a collective rpc call
-        all_kwargs: List[Dict] = [
-            {} for _ in range(vllm_config.parallel_config.world_size)
-        ]
-        all_kwargs[rank] = {
-            "vllm_config": vllm_config,
-            "local_rank": local_rank,
-            "rank": rank,
-            "distributed_init_method": distributed_init_method,
-        }
-        wrapper.init_worker(all_kwargs)
-        self.worker = wrapper.worker
+        try:
+            print("worker initializing", flush=True)
+            self.rank = rank
+            wrapper = WorkerWrapperBase(vllm_config=vllm_config, rpc_rank=rank)
+            # TODO: move `init_worker` to executor level as a collective rpc call
+            all_kwargs: List[Dict] = [
+                {} for _ in range(vllm_config.parallel_config.world_size)
+            ]
+            all_kwargs[rank] = {
+                "vllm_config": vllm_config,
+                "local_rank": local_rank,
+                "rank": rank,
+                "distributed_init_method": distributed_init_method,
+            }
+            wrapper.init_worker(all_kwargs)
+            self.worker = wrapper.worker
 
-        pid = os.getpid()
-        _add_prefix(sys.stdout, f"VllmWorker rank={rank}", pid)
-        _add_prefix(sys.stderr, f"VllmWorker rank={rank}", pid)
+            pid = os.getpid()
+            _add_prefix(sys.stdout, f"VllmWorker rank={rank}", pid)
+            _add_prefix(sys.stderr, f"VllmWorker rank={rank}", pid)
 
-        # Initialize MessageQueue for receiving SchedulerOutput
-        self.rpc_broadcast_mq = MessageQueue.create_from_handle(
-            input_shm_handle, self.worker.rank)
+            # Initialize MessageQueue for receiving SchedulerOutput
+            self.rpc_broadcast_mq = MessageQueue.create_from_handle(
+                input_shm_handle, self.worker.rank)
 
-        # Initializes a message queue for sending the model output
-        self.worker_response_mq = MessageQueue(1, 1)
-        worker_response_mq_handle = self.worker_response_mq.export_handle()
+            # Initializes a message queue for sending the model output
+            self.worker_response_mq = MessageQueue(1, 1)
+            worker_response_mq_handle = self.worker_response_mq.export_handle()
 
-        # Send Readiness signal to EngineCore process.
-        with zmq_socket_ctx(ready_path, zmq.constants.PUSH) as ready_socket:
-            payload = pickle.dumps(worker_response_mq_handle,
-                                   protocol=pickle.HIGHEST_PROTOCOL)
-            ready_socket.send_string(WorkerProc.READY_STR)
-            ready_socket.send(payload)
+            # Send Readiness signal to EngineCore process.
+            with zmq_socket_ctx(ready_path, zmq.constants.PUSH) as ready_socket:
+                payload = pickle.dumps(worker_response_mq_handle,
+                                    protocol=pickle.HIGHEST_PROTOCOL)
+                ready_socket.send_string(WorkerProc.READY_STR)
+                ready_socket.send(payload)
 
-        self.worker.init_device()
-        self.worker.load_model()
+            self.worker.init_device()
+            self.worker.load_model()
+        except Exception as e:
+            # Print stack trace for process creation failure
+            logger.error(
+                f"Failed to create worker process for rank {rank}. "
+                f"Exception: {str(e)}"
+            )
+            print("Stack trace for process creation failure:")
+            import traceback
+            traceback.print_exc()
+            # Clean up any partial
 
     @staticmethod
     def make_worker_process(
